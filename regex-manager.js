@@ -243,6 +243,7 @@
             color: var(--rm-text);
             font-family: var(--mainFontFamily, inherit);
             font-size: calc(1em * var(--rm-font-scale, 1));
+            color-scheme: dark;
         }
         /* ===== 浅色覆盖 ===== */
         .rm-root.rm-light {
@@ -259,6 +260,7 @@
             --rm-track: #cfd0d8;
             --rm-shadow: 0 10px 34px rgba(0,0,0,0.16);
             --rm-shadow-sm: 0 2px 8px rgba(0,0,0,0.08);
+            color-scheme: light;
         }
 
         #regex-manager-v10 {
@@ -448,24 +450,25 @@
 
         /* ===== Toggle 开关 ===== */
         .rm-toggle { position: relative; display: inline-block; width: 30px; height: 17px; cursor: pointer; flex-shrink: 0; }
-        .rm-toggle input { opacity: 0; width: 0; height: 0; }
-        .rm-slider { position: absolute; inset: 0; background: var(--rm-track); transition: 0.25s ease; border-radius: 18px; }
+        .rm-toggle input { opacity: 0 !important; width: 0 !important; height: 0 !important; position: absolute; }
+        .rm-slider { position: absolute; inset: 0; background: var(--rm-track) !important; transition: 0.25s ease; border-radius: 18px; }
         .rm-slider:before {
             position: absolute; content: ""; height: 11px; width: 11px; left: 3px; top: 3px;
-            background: #fff; transition: 0.25s ease; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            background: #fff !important; transition: 0.25s ease; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
-        input:checked + .rm-slider { background: var(--rm-accent); }
+        input:checked + .rm-slider { background: var(--rm-accent) !important; }
         input:checked + .rm-slider:before { transform: translateX(13px); }
 
         /* ===== 圆形勾选 ===== */
         .rm-check-round {
-            width: 19px; height: 19px; cursor: pointer; appearance: none; -webkit-appearance: none;
+            width: 19px; height: 19px; cursor: pointer; appearance: none !important; -webkit-appearance: none !important;
             border-radius: 50%; position: relative; transition: 0.18s; flex-shrink: 0; margin: 0;
-            background: transparent; box-shadow: inset 0 0 0 2px var(--rm-track);
+            background: transparent !important; box-shadow: inset 0 0 0 2px var(--rm-track) !important;
+            accent-color: var(--rm-accent);
         }
-        .rm-check-round:checked { background: var(--rm-accent); box-shadow: none; }
+        .rm-check-round:checked { background: var(--rm-accent) !important; box-shadow: none !important; }
         .rm-check-round:checked::after {
-            content: "✓"; position: absolute; color: #fff; font-size: 12px; font-weight: 700;
+            content: "✓"; position: absolute; color: #fff !important; font-size: 12px; font-weight: 700;
             left: 50%; top: 50%; transform: translate(-50%,-50%);
         }
 
