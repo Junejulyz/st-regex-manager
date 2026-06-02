@@ -1,0 +1,22 @@
+{
+  "type": "script",
+  "enabled": true,
+  "name": "正则管理",
+  "id": "864983cc-6753-4908-98d5-3829e4b11388",
+  "content": "import 'https://junejulyz.github.io/st-regex-manager/regex-manager.js'\n",
+  "info": "正则分组管理器。\n厉害的原作者：@jingking0257（酱香大猪肘）\n二改：@_junezz_ 和 Claude\n功能：正则管理/绑定世界书/批量导入/导出/分组/批量启用/禁用",
+  "button": {
+    "enabled": true,
+    "buttons": [
+      {
+        "name": "正则管理",
+        "visible": true
+      }
+    ]
+  },
+  "data": {},
+  "export_with": {
+    "data": true,
+    "button": true
+  }
+}
