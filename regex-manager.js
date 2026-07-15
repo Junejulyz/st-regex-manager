@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         正则管理
-// @version      1.2.1
+// @version      1.2.2
 // @description  正则管理/绑定世界书/批量导入/导出/分组/批量启用/禁用
 // @author       @Junezzz&Claude
 // ==/UserScript==
@@ -11,7 +11,7 @@
         return;
     }
 
-    const VERSION = '1.2.1';
+    const VERSION = '1.2.2';
     const SCRIPT_NAME = 'RegexManagerV10';
     const MAIN_BUTTON_NAME = '正则管理';
     const STORAGE_KEY = 'regex_group_worldbooks';
@@ -1062,17 +1062,32 @@
         } catch (e) { console.warn('Regex Manager: ID 修复失败', e); }
     }
 
-    // 向当前激活预设追加正则
+    // 向当前激活预设追加正则。返回是否写入成功（写后校验）。
+    // 不再写死 'openai'：优先选“已经有预设正则”的那个接口的预设管理器，
+    // 即用户实际在用的那个，避免把正则写到错的预设里。
     async function appendToPresetRegexes(newScripts) {
-        if (!newScripts || !newScripts.length) return;
+        if (!newScripts || !newScripts.length) return false;
         const ctx = SillyTavern.getContext();
-        const mgr = ctx.getPresetManager('openai');
-        if (!mgr || typeof mgr.writePresetExtensionField !== 'function') return;
-        let scripts = [];
-        try { scripts = mgr.readPresetExtensionField({ path: 'regex_scripts' }) || []; } catch (e) {}
-        if (!Array.isArray(scripts)) scripts = [];
-        try { mgr.writePresetExtensionField({ path: 'regex_scripts', value: [...scripts, ...newScripts] }); }
-        catch (e) { console.warn('Regex Manager: 追加预设正则失败', e); }
+        const apis = ['openai', 'textgenerationwebui', 'kobold', 'novel'];
+        let mgr = null, existing = [];
+        for (const api of apis) {
+            try {
+                const m = ctx.getPresetManager(api);
+                if (!m || typeof m.writePresetExtensionField !== 'function' || typeof m.readPresetExtensionField !== 'function') continue;
+                const s = m.readPresetExtensionField({ path: 'regex_scripts' });
+                if (Array.isArray(s) && s.length > 0) { mgr = m; existing = s; break; } // 命中已有预设正则的接口，最可靠
+                if (!mgr) { mgr = m; existing = Array.isArray(s) ? s : []; } // 兜底：第一个可用的
+            } catch (e) {}
+        }
+        if (!mgr) { console.warn('Regex Manager: 找不到可写的预设管理器'); return false; }
+        try { mgr.writePresetExtensionField({ path: 'regex_scripts', value: [...existing, ...newScripts] }); }
+        catch (e) { console.warn('Regex Manager: 追加预设正则失败', e); return false; }
+        // 写后校验：重新读回确认真的写进去了
+        try {
+            const after = mgr.readPresetExtensionField({ path: 'regex_scripts' }) || [];
+            const ids = new Set(newScripts.map(s => s.id));
+            return after.filter(s => ids.has(s.id)).length >= newScripts.length;
+        } catch (e) { return true; }
     }
 
     // 预设正则(驼峰 disabled) <-> 酒馆正则(下划线 enabled) 格式互转
@@ -1621,7 +1636,8 @@
                 source: { user_input: true, ai_output: true, slash_command: false, world_info: false },
                 destination: { display: true, prompt: true }
             }));
-            await appendToPresetRegexes(newScripts);
+            const ok = await appendToPresetRegexes(newScripts);
+            if (!ok) return toastr.error('写入预设失败：未找到可写的预设，或写入未生效。请确认已激活预设后重试');
         } else {
             const newRegexes = items.map(it => ({
                 id: SillyTavern.uuidv4(),
@@ -1643,7 +1659,8 @@
                 }
             } catch (e) {}
         }
-        toastr.success(`已导入 ${items.length} 条到${scopeLabelOf(scope)}`);
+        syncNativeRegexPanel();
+        toastr.success(`已导入 ${items.length} 条到${scopeLabelOf(scope)}，刷新页面后可在原生面板看到`);
     }
 
     // 把若干正则写入某分组（加 [分组] 前缀，按指定作用域分配）
@@ -1658,7 +1675,7 @@
                 source: { user_input: true, ai_output: true, slash_command: false, world_info: false },
                 destination: { display: true, prompt: true }
             }));
-            await appendToPresetRegexes(newScripts);
+            return await appendToPresetRegexes(newScripts);
         } else {
             const newRegexes = items.map(it => ({
                 id: SillyTavern.uuidv4(), scope,
@@ -1670,6 +1687,10 @@
                 destination: { display: true, prompt: true }
             }));
             await TavernHelper.updateTavernRegexesWith(existing => [...existing, ...newRegexes], { scope: 'all' });
+            try {
+                const ids = new Set(newRegexes.map(r => r.id));
+                return (TavernHelper.getTavernRegexes({ scope: 'all' }) || []).filter(r => ids.has(r.id)).length >= newRegexes.length;
+            } catch (e) { return true; }
         }
     }
 
@@ -1722,8 +1743,10 @@
             } catch (e) { console.warn('Regex Manager: 导入文件解析失败', f.name, e); }
         }
         if (!items.length) return toastr.warning('没有可导入的正则');
-        await importIntoGroup(groupName, scope, items);
-        toastr.success(`已导入 ${items.length} 条到「${groupName}」(${scopeLabelOf(scope)})`);
+        const ok = await importIntoGroup(groupName, scope, items);
+        if (ok === false) return toastr.error(scope === 'preset' ? '写入预设失败：未找到可写的预设，或写入未生效。请确认已激活预设后重试' : '导入未生效，请刷新酒馆页面后重试');
+        syncNativeRegexPanel();
+        toastr.success(`已导入 ${items.length} 条到「${groupName}」(${scopeLabelOf(scope)})，刷新页面后可在原生面板看到`);
     }
 
     // --- 绑定世界书 UI ---
