@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         正则管理
-// @version      1.0
+// @version      1.1.0
 // @description  正则管理/绑定世界书/批量导入/导出/分组/批量启用/禁用
 // @author       @Junezzz&Claude
 // ==/UserScript==
@@ -11,6 +11,7 @@
         return;
     }
 
+    const VERSION = '1.1.0';
     const SCRIPT_NAME = 'RegexManagerV10';
     const MAIN_BUTTON_NAME = '正则管理';
     const STORAGE_KEY = 'regex_group_worldbooks';
@@ -526,6 +527,7 @@
         }
         .rm-chip-del:hover { color: var(--rm-danger); background: var(--rm-danger-soft); }
         .rm-range { width: 100%; accent-color: var(--rm-accent); cursor: pointer; }
+        .rm-set-ver { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--rm-surface-2); text-align: center; font-size: 0.72em; color: var(--rm-text-dim); letter-spacing: 0.3px; }
         /* ===== 设置面板左对齐 ===== */
         .rm-set-section, .rm-set-row, .rm-set-label { text-align: left; }
         .rm-section-title { font-size: 0.95em; font-weight: 600; margin-bottom: 12px; color: var(--rm-text); text-align: left; }
@@ -1489,7 +1491,8 @@
                     <span class="rm-chip ${ep === 'quickreply' ? 'active' : ''}" data-role="entry" data-ep="quickreply">快捷回复栏</span>
                     <span class="rm-chip ${ep === 'extensions' ? 'active' : ''}" data-role="entry" data-ep="extensions">魔法棒菜单</span>
                 </div>
-            </div>`;
+            </div>
+            <div class="rm-set-ver">正则管理 v${VERSION}</div>`;
     }
     async function showSettingsUI(mainEl) {
         const html = `<style>${CSS_STYLES}</style>
