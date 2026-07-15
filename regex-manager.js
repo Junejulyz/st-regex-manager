@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         正则管理
-// @version      1.1.0
+// @version      1.2.0
 // @description  正则管理/绑定世界书/批量导入/导出/分组/批量启用/禁用
 // @author       @Junezzz&Claude
 // ==/UserScript==
@@ -11,7 +11,7 @@
         return;
     }
 
-    const VERSION = '1.1.0';
+    const VERSION = '1.2.0';
     const SCRIPT_NAME = 'RegexManagerV10';
     const MAIN_BUTTON_NAME = '正则管理';
     const STORAGE_KEY = 'regex_group_worldbooks';
@@ -205,6 +205,24 @@
         
         console.log('Regex Manager: 最终发现的正则总数:', result.length, result);
         return result;
+    }
+
+    // SillyTavern 原生正则面板 loadRegexScripts() 只在页面加载时渲染一次、且未对外暴露，
+    // 通过 API 改数据后面板不会自动重绘。这里尽力直接同步面板里已渲染的勾选框显示，
+    // 让"插件里改了、原生面板没变"的困惑消失。找不到元素时静默跳过（结构变动或面板未渲染）。
+    // 注意：这纯粹是视觉同步——生成时酒馆读的是数据层，数据层已由写入函数改好。
+    function syncNativeRegexPanel() {
+        try {
+            const pd = window.parent && window.parent.document;
+            if (!pd) return;
+            const list = TavernHelper.getTavernRegexes({ scope: 'all' }) || [];
+            list.forEach(r => {
+                const row = pd.getElementById(String(r.id));
+                if (!row) return;
+                const cb = row.querySelector('.disable_regex');
+                if (cb) cb.checked = !r.enabled; // 原生勾选框：勾选=禁用
+            });
+        } catch (e) {}
     }
 
     async function getRegexGroups() {
@@ -924,6 +942,7 @@
                 const all = await getAllRegexes();
                 const target = all.find(r => String(r.id) === id);
                 if (target && target.enabled === enabled) {
+                    syncNativeRegexPanel();
                     toastr.success(`正则已${enabled ? '启用' : '禁用'}`);
                 } else {
                     $(this).prop('checked', !enabled);
@@ -1134,6 +1153,7 @@
             else current = current.filter(w => !group.worldbooks.includes(w));
             rebindGlobalWorldbooks(current);
         }
+        syncNativeRegexPanel();
         toastr.success(`分组已${isEnabled ? '开启' : '关闭'}`);
     }
 
@@ -1286,6 +1306,7 @@
         await updatePresetRegexesWith(scripts =>
             scripts.map(s => idSet.has(String(s.id)) ? { ...s, disabled: !isEnabled } : s)
         );
+        syncNativeRegexPanel();
     }
     async function deleteSelectedRegexes(ids) {
         const idSet = new Set(ids.map(String));
