@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         正则管理
-// @version      1.2.0
+// @version      1.2.1
 // @description  正则管理/绑定世界书/批量导入/导出/分组/批量启用/禁用
 // @author       @Junezzz&Claude
 // ==/UserScript==
@@ -11,7 +11,7 @@
         return;
     }
 
-    const VERSION = '1.2.0';
+    const VERSION = '1.2.1';
     const SCRIPT_NAME = 'RegexManagerV10';
     const MAIN_BUTTON_NAME = '正则管理';
     const STORAGE_KEY = 'regex_group_worldbooks';
@@ -215,12 +215,24 @@
         try {
             const pd = window.parent && window.parent.document;
             if (!pd) return;
-            const list = TavernHelper.getTavernRegexes({ scope: 'all' }) || [];
-            list.forEach(r => {
-                const row = pd.getElementById(String(r.id));
+            // renderScript 会把 script.id 设为行元素的 id，勾选框类名 .disable_regex（勾选=禁用）
+            const syncOne = (id, enabled) => {
+                const row = pd.getElementById(String(id));
                 if (!row) return;
                 const cb = row.querySelector('.disable_regex');
-                if (cb) cb.checked = !r.enabled; // 原生勾选框：勾选=禁用
+                if (cb) cb.checked = !enabled;
+            };
+            // 1. 全局 + 局部：走 TavernHelper
+            (TavernHelper.getTavernRegexes({ scope: 'all' }) || []).forEach(r => syncOne(r.id, r.enabled));
+            // 2. 预设正则：走 PresetManager（原生面板渲染在 #saved_preset_scripts，行 id 同样是 script.id）
+            const ctx = SillyTavern.getContext();
+            ['openai', 'textgenerationwebui', 'kobold', 'novel'].forEach(api => {
+                let mgr;
+                try { mgr = ctx.getPresetManager(api); } catch (e) { return; }
+                if (!mgr || typeof mgr.readPresetExtensionField !== 'function') return;
+                let scripts;
+                try { scripts = mgr.readPresetExtensionField({ path: 'regex_scripts' }); } catch (e) { return; }
+                if (Array.isArray(scripts)) scripts.forEach(s => syncOne(s.id, !s.disabled));
             });
         } catch (e) {}
     }
