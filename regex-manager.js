@@ -765,8 +765,9 @@
             }
         };
 
-        refreshTab();
-        
+        // 先修复缺失/重复 ID 再渲染（否则开关会静默失效或误伤其他正则）
+        repairRegexIds().then(refreshTab);
+
         // 筛选按钮监听
         $(popup.dlg).on('click', '.rm-filter-btn', function() {
             currentFilter = $(this).data('filter');
@@ -906,18 +907,32 @@
             }
         });
 
-        // 单个正则切换开关
+        // 单个正则切换开关（写后校验：重新读取确认真的生效，避免“toast 成功但实际没变”）
         $(popup.dlg).on('change', '.regex-toggle', async function() {
-            const id = $(this).data('id');
+            const id = String($(this).attr('data-id') || '');
             const enabled = $(this).is(':checked');
-            await TavernHelper.updateTavernRegexesWith(regexes =>
-                regexes.map(r => r.id === id ? { ...r, enabled } : r),
-                { scope: 'all' }
-            );
-            await updatePresetRegexesWith(scripts =>
-                scripts.map(s => s.id === id ? { ...s, disabled: !enabled } : s)
-            );
-            toastr.success(`正则已${enabled ? '启用' : '禁用'}`);
+            try {
+                await TavernHelper.updateTavernRegexesWith(regexes =>
+                    regexes.map(r => String(r.id) === id ? { ...r, enabled } : r),
+                    { scope: 'all' }
+                );
+                await updatePresetRegexesWith(scripts =>
+                    scripts.map(s => String(s.id) === id ? { ...s, disabled: !enabled } : s)
+                );
+                const all = await getAllRegexes();
+                const target = all.find(r => String(r.id) === id);
+                if (target && target.enabled === enabled) {
+                    toastr.success(`正则已${enabled ? '启用' : '禁用'}`);
+                } else {
+                    $(this).prop('checked', !enabled);
+                    toastr.error(target ? '开关写入未生效，请刷新酒馆页面后重试' : '未找到该正则（ID 失效），请刷新酒馆页面');
+                    console.warn('Regex Manager: 开关校验失败', { id, expect: enabled, actual: target?.enabled });
+                }
+            } catch (e) {
+                $(this).prop('checked', !enabled);
+                toastr.error('切换失败：' + (e?.message || e));
+                console.error('Regex Manager: 切换出错', e);
+            }
         });
 
         // 底部按钮
@@ -977,6 +992,41 @@
             try { mgr.writePresetExtensionField({ path: 'regex_scripts', value: next }); }
             catch (e) { console.warn('Regex Manager: 写入预设正则失败', e); }
         }
+    }
+
+    // 修复缺失/重复的正则 ID（缺 ID 的开关会静默失效；重复 ID 会导致开 A 却动了 B）
+    async function repairRegexIds() {
+        try {
+            const seen = new Set();
+            let broken = 0;
+            const scan = (list, key) => {
+                if (!Array.isArray(list)) return;
+                list.forEach(r => {
+                    const id = r && r[key];
+                    if (typeof id !== 'string' || !id || seen.has(id)) broken++;
+                    else seen.add(id);
+                });
+            };
+            scan(TavernHelper.getTavernRegexes({ scope: 'all' }), 'id');
+            const fixOne = (r) => {
+                let id = (typeof r.id === 'string' && r.id) ? r.id : null;
+                if (!id || seen.has(id)) {
+                    id = SillyTavern.uuidv4();
+                    while (seen.has(id)) id = SillyTavern.uuidv4();
+                    seen.add(id);
+                    return { ...r, id };
+                }
+                seen.add(id);
+                return r;
+            };
+            if (broken > 0) {
+                seen.clear();
+                await TavernHelper.updateTavernRegexesWith(regexes => regexes.map(fixOne), { scope: 'all' });
+                console.log(`Regex Manager: 修复了 ${broken} 个缺失/重复的正则 ID`);
+            }
+            // 预设正则：ID 缺失或与酒馆正则撞车时重新分配（内容没变不会触发写盘）
+            await updatePresetRegexesWith(scripts => scripts.map(fixOne));
+        } catch (e) { console.warn('Regex Manager: ID 修复失败', e); }
     }
 
     // 向当前激活预设追加正则
@@ -1184,7 +1234,13 @@
             return [...others, ...newRegexes];
         }, { scope: 'all' });
         setGroupWorldbooks(finalGroupName, worldbooks);
-        toastr.success('导入成功');
+        // 写后校验：确认真的写进去了
+        try {
+            const written = (TavernHelper.getTavernRegexes({ scope: 'all' }) || [])
+                .filter(r => parseGroupName(r.script_name) === finalGroupName).length;
+            if (written >= newRegexes.length) toastr.success(`导入成功（${written} 条）`);
+            else toastr.error(`导入异常：预期 ${newRegexes.length} 条，实际写入 ${written} 条，请刷新酒馆页面后重试`);
+        } catch (e) { toastr.success('导入成功'); }
     }
 
     async function importAndCreateGroup() {
@@ -1220,17 +1276,19 @@
 
     // --- 批量正则管理 ---
     async function toggleSelectedRegexes(ids, isEnabled) {
+        const idSet = new Set(ids.map(String));
         await TavernHelper.updateTavernRegexesWith(regexes =>
-            regexes.map(r => ids.includes(r.id) ? { ...r, enabled: isEnabled } : r),
+            regexes.map(r => idSet.has(String(r.id)) ? { ...r, enabled: isEnabled } : r),
             { scope: 'all' }
         );
         await updatePresetRegexesWith(scripts =>
-            scripts.map(s => ids.includes(s.id) ? { ...s, disabled: !isEnabled } : s)
+            scripts.map(s => idSet.has(String(s.id)) ? { ...s, disabled: !isEnabled } : s)
         );
     }
     async function deleteSelectedRegexes(ids) {
-        await TavernHelper.updateTavernRegexesWith(existing => existing.filter(r => !ids.includes(r.id)), { scope: 'all' });
-        await updatePresetRegexesWith(scripts => scripts.filter(s => !ids.includes(s.id)));
+        const idSet = new Set(ids.map(String));
+        await TavernHelper.updateTavernRegexesWith(existing => existing.filter(r => !idSet.has(String(r.id))), { scope: 'all' });
+        await updatePresetRegexesWith(scripts => scripts.filter(s => !idSet.has(String(s.id))));
     }
     // 批量导出选中的正则为 JSON 文件（兼容全局/局部/预设的字段命名）
     function safeFileName(name, maxLen = 50) {
@@ -1271,42 +1329,44 @@
     }
     async function moveSelectedRegexes(ids, targetScope) {
         if (targetScope === 'character' && !hasActiveCharacter()) return toastr.warning('当前未进入任何角色，无法移至局部');
-        const idSet = new Set(ids);
-        await moveRegexes(o => idSet.has(o.id), targetScope);
+        const idSet = new Set(ids.map(String));
+        await moveRegexes(o => idSet.has(String(o.id)), targetScope);
     }
     async function renameRegex(id, newName) {
+        id = String(id);
         await TavernHelper.updateTavernRegexesWith(regexes =>
-            regexes.map(r => r.id === id ? { ...r, script_name: newName } : r),
+            regexes.map(r => String(r.id) === id ? { ...r, script_name: newName } : r),
             { scope: 'all' }
         );
         await updatePresetRegexesWith(scripts =>
-            scripts.map(s => s.id === id ? { ...s, scriptName: newName } : s)
+            scripts.map(s => String(s.id) === id ? { ...s, scriptName: newName } : s)
         );
     }
 
     // 把单条正则移出其所在分组（去掉前缀，保留规则与作用域）
     async function removeRegexFromGroup(id) {
+        id = String(id);
         await TavernHelper.updateTavernRegexesWith(regexes =>
-            regexes.map(r => r.id === id ? { ...r, script_name: stripPrefix(r.script_name) } : r),
+            regexes.map(r => String(r.id) === id ? { ...r, script_name: stripPrefix(r.script_name) } : r),
             { scope: 'all' }
         );
         await updatePresetRegexesWith(scripts =>
-            scripts.map(s => s.id === id ? { ...s, scriptName: stripPrefix(s.scriptName) } : s)
+            scripts.map(s => String(s.id) === id ? { ...s, scriptName: stripPrefix(s.scriptName) } : s)
         );
     }
 
     // 把若干正则加入某分组：先对齐到该组作用域，再加 [分组] 前缀
     async function addRegexesToGroup(ids, groupName, groupScope) {
         if (groupScope === 'character' && !hasActiveCharacter()) return toastr.warning('当前未进入任何角色，无法加入局部分组');
-        const idSet = new Set(ids);
-        await moveRegexes(o => idSet.has(o.id), groupScope);
+        const idSet = new Set(ids.map(String));
+        await moveRegexes(o => idSet.has(String(o.id)), groupScope);
         const addPrefix = (nm) => `${makePrefix(groupName)} ${stripPrefix(nm)}`;
         await TavernHelper.updateTavernRegexesWith(regexes =>
-            regexes.map(r => idSet.has(r.id) ? { ...r, script_name: addPrefix(r.script_name) } : r),
+            regexes.map(r => idSet.has(String(r.id)) ? { ...r, script_name: addPrefix(r.script_name) } : r),
             { scope: 'all' }
         );
         await updatePresetRegexesWith(scripts =>
-            scripts.map(s => idSet.has(s.id) ? { ...s, scriptName: addPrefix(s.scriptName) } : s)
+            scripts.map(s => idSet.has(String(s.id)) ? { ...s, scriptName: addPrefix(s.scriptName) } : s)
         );
     }
 
@@ -1538,6 +1598,14 @@
                 destination: { display: true, prompt: true }
             }));
             await TavernHelper.updateTavernRegexesWith(existing => [...existing, ...newRegexes], { scope: 'all' });
+            // 写后校验
+            try {
+                const ids = new Set(newRegexes.map(r => r.id));
+                const written = (TavernHelper.getTavernRegexes({ scope: 'all' }) || []).filter(r => ids.has(r.id)).length;
+                if (written < newRegexes.length) {
+                    return toastr.error(`导入异常：预期 ${newRegexes.length} 条，实际写入 ${written} 条，请刷新酒馆页面后重试`);
+                }
+            } catch (e) {}
         }
         toastr.success(`已导入 ${items.length} 条到${scopeLabelOf(scope)}`);
     }
